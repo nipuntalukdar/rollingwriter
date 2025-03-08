@@ -145,9 +145,18 @@ func NewWriterFromConfig(c *Config) (RollingWriter, error) {
 	case "none":
 		rollingWriter = &writer
 	case "lock":
-		rollingWriter = &LockedWriter{
+		wr := &LockedWriter{
 			Writer: writer,
 		}
+		rollingWriter = wr
+		go func(wr* LockedWriter){
+			for {
+				filename := <- wr.fire
+				if err := wr.Reopen(filename); err != nil {
+					return
+				}
+			}
+		}(wr)
 	case "async":
 		wr := &AsynchronousWriter{
 			ctx:     make(chan int),
@@ -162,6 +171,14 @@ func NewWriterFromConfig(c *Config) (RollingWriter, error) {
 		go wr.writer()
 		wr.wg.Wait()
 		rollingWriter = wr
+		go func(wr* AsynchronousWriter){
+			for {
+				filename := <- wr.fire
+				if err := wr.Reopen(filename); err != nil {
+					return
+				}
+			}
+		}(wr)
 	case "buffer":
 		// bufferWriterThershould unit is Byte
 		bf := make([]byte, 0, c.BufferWriterThershould*2)
@@ -208,12 +225,10 @@ func NewWriterFromConfigFile(path string) (RollingWriter, error) {
 
 // DoRemove will delete the oldest file
 func (w *Writer) DoRemove() {
-	select {
-	case file := <-w.rollingfilech:
-		// remove the oldest file
-		if err := os.Remove(file); err != nil {
-			log.Println("error in remove log file", file, err)
-		}
+	file := <-w.rollingfilech
+	// remove the oldest file
+	if err := os.Remove(file); err != nil {
+		log.Println("error in remove log file", file, err)
 	}
 }
 
@@ -248,6 +263,11 @@ func AsynchronousWriterErrorChan(wr RollingWriter) (chan error, error) {
 	return nil, ErrInvalidArgument
 }
 
+func (w *LockedWriter) Reopen(file string) error {
+	w.Lock()
+	defer w.Unlock()
+	return w.Writer.Reopen(file)
+}
 // Reopen do the rotate, open new file and swap FD then trate the old FD
 func (w *Writer) Reopen(file string) error {
 	if w.cf.FilterEmptyBackup {
@@ -261,16 +281,19 @@ func (w *Writer) Reopen(file string) error {
 		}
 	}
 
-	w.file.Close()
 	if err := os.Rename(w.absPath, file); err != nil {
+		log.Println("Error renaming file", file, err)
 		return err
 	}
 	newfile, err := os.OpenFile(w.absPath, DefaultFileFlag, DefaultFileMode)
 	if err != nil {
+		log.Println("Error creating file", w.absPath, err)
 		return err
 	}
-
+	
+	old_file := w.file
 	w.file = newfile
+	old_file.Close()
 
 	go func() {
 		if w.cf.Compress {
@@ -310,41 +333,19 @@ func (w *Writer) Reopen(file string) error {
 	return nil
 }
 
-func (w *Writer) Write(b []byte) (int, error) {
-	var ok = false
-	for !ok {
-		select {
-		case filename := <-w.fire:
-			if err := w.Reopen(filename); err != nil {
-				return 0, err
-			}
-		default:
-			ok = true
-		}
-	}
-
+func (w *Writer) Write(b []byte) (n int, err error) {
 	fp := atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&w.file)))
 	file := (*os.File)(fp)
-	return file.Write(b)
+	n, err = file.Write(b)
+	return
 }
 
 func (w *LockedWriter) Write(b []byte) (n int, err error) {
 	w.Lock()
-
-	var ok = false
-	for !ok {
-		select {
-		case filename := <-w.fire:
-			if err := w.Reopen(filename); err != nil {
-				w.Unlock()
-				return 0, err
-			}
-		default:
-			ok = true
-		}
-	}
-
 	n, err = w.file.Write(b)
+	if err != nil {
+		log.Println("Write error", err)
+	}
 	w.Unlock()
 	return
 }
@@ -382,10 +383,6 @@ func (w *AsynchronousWriter) writer() {
 	w.wg.Done()
 	for {
 		select {
-		case filename := <-w.fire:
-			if err = w.Reopen(filename); err != nil && len(w.errChan) < cap(w.errChan) {
-				w.errChan <- err
-			}
 		case b := <-w.queue:
 			if _, err = w.file.Write(b); err != nil && len(w.errChan) < cap(w.errChan) {
 				w.errChan <- err
@@ -398,18 +395,6 @@ func (w *AsynchronousWriter) writer() {
 }
 
 func (w *BufferWriter) Write(b []byte) (int, error) {
-	var ok = false
-	for !ok {
-		select {
-		case filename := <-w.fire:
-			if err := w.Reopen(filename); err != nil {
-				return 0, err
-			}
-		default:
-			ok = true
-		}
-	}
-
 	w.lockBuf.Lock()
 	*(w.buf) = append(*w.buf, b...)
 	w.lockBuf.Unlock()

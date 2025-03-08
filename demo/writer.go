@@ -20,9 +20,9 @@ func main() {
 		// 目前有2中滚动策略: 按照时间滚动按照大小滚动
 		// - 时间滚动: 配置策略如同 crontable, 例如,每天0:0切分, 则配置 0 0 0 * * *
 		// - 大小滚动: 配置单个日志文件(未压缩)的滚动大小门限, 如1G, 500M
-		RollingPolicy:      rollingwriter.TimeRolling, //配置滚动策略 norolling timerolling volumerolling
+		RollingPolicy:      rollingwriter.VolumeRolling, //配置滚动策略 norolling timerolling volumerolling
 		RollingTimePattern: "* * * * * *",             //配置时间滚动策略
-		RollingVolumeSize:  "2k",                      //配置截断文件下限大小
+		RollingVolumeSize:  "100k",                      //配置截断文件下限大小
 
 		// writer 支持4种不同的 mode:
 		// 1. none 2. lock
@@ -46,13 +46,15 @@ func main() {
 
 	// 并发读写即可
 	wg := sync.WaitGroup{}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 20; i++ {
 		wg.Add(1)
-		go func() {
-			for {
+		go func(w *sync.WaitGroup) {
+			for j := 0 ; j < 1000 ; j++ {
 				fmt.Fprintf(writer, "now :%s \n", time.Now())
+				time.Sleep(10 * time.Millisecond)
 			}
-		}()
+			w.Done()
+		}(&wg)
 	}
 	wg.Wait()
 }
