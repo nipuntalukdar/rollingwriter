@@ -9,7 +9,7 @@ import (
 func TestOptions(t *testing.T) {
 	options := []Option{
 		WithTimeTagFormat("200601021504"), WithLogPath("./"), WithFileName("foo"),
-		WithAsynchronous(), WithBuffer(), WithBufferThershould(8), WithCompress(), WithLock(),
+        WithCompress(),
 		WithMaxRemain(3), WithRollingVolumeSize("100mb"), WithRollingTimePattern("0 0 0 * * *"),
 	}
 	cfg := NewDefaultConfig()
@@ -26,8 +26,6 @@ func TestOptions(t *testing.T) {
 		RollingPolicy:          TimeRolling,   // TimeRotate by default
 		RollingTimePattern:     "0 0 0 * * *", // Rolling at 00:00 AM everyday
 		RollingVolumeSize:      "100mb",
-		WriterMode:             "lock",
-		BufferWriterThershould: 8,
 		Compress:               true,
 	}
 	assert.Equal(t, cfg, destcfg)

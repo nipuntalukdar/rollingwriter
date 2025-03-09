@@ -1,6 +1,7 @@
 package rollingwriter
 
 import (
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"io"
@@ -10,9 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
-	"unsafe"
 )
 
 // Writer provide a synchronous file writer
@@ -24,46 +23,16 @@ type Writer struct {
 	fire          chan string
 	cf            *Config
 	rollingfilech chan string
+	writech       chan []byte
+	errorch       chan error
 }
 
-// LockedWriter provide a synchronous writer with lock
-// write operate will be guaranteed by lock
-type LockedWriter struct {
-	Writer
-	sync.Mutex
-}
-
-// AsynchronousWriter provide a asynchronous writer with the writer to confirm the write
-type AsynchronousWriter struct {
-	Writer
-	ctx     chan int
-	queue   chan []byte
-	errChan chan error
-	closed  int32
-	wg      sync.WaitGroup
-}
-
-// BufferWriter merge some write operations into one.
-type BufferWriter struct {
-	Writer
-	buf     *[]byte // store the pointer for atomic opertaion
-	swaping int32
-
-	lockBuf Locker // protect the buffer by spinlock
-}
-
-// buffer pool for asynchronous writer
-var _asyncBufferPool = sync.Pool{
-	New: func() interface{} {
-		return make([]byte, BufferSize)
-	},
-}
-
-// NewWriterFromConfig generate the rollingWriter with given config
-func NewWriterFromConfig(c *Config) (RollingWriter, error) {
+func (w *Writer) fileWriter() {
 	// makeup log path and create
+	c := w.cf
 	if c.LogPath == "" || c.FileName == "" {
-		return nil, ErrInvalidArgument
+		w.errorch <- ErrInvalidArgument
+		return
 	}
 
 	if c.FileExtension == "" {
@@ -72,37 +41,24 @@ func NewWriterFromConfig(c *Config) (RollingWriter, error) {
 
 	// make dir for path if not exist
 	if err := os.MkdirAll(c.LogPath, 0700); err != nil {
-		return nil, err
+		w.errorch <- err
+		return
 	}
 
 	filepath := LogFilePath(c)
+	w.absPath = filepath
 	// open the file and get the FD
 	file, err := os.OpenFile(filepath, DefaultFileFlag, DefaultFileMode)
 	if err != nil {
-		return nil, err
+		w.errorch <- err
+		return
 	}
-
-	// Start the Manager
-	mng, err := NewManager(c)
-	if err != nil {
-		return nil, err
-	}
-
-	var rollingWriter RollingWriter
-	writer := Writer{
-		m:       mng,
-		file:    file,
-		absPath: filepath,
-		fire:    mng.Fire(),
-		cf:      c,
-	}
-
 	if c.MaxRemain > 0 {
-		writer.rollingfilech = make(chan string, c.MaxRemain)
+		w.rollingfilech = make(chan string, c.MaxRemain)
 		dir, err := os.ReadDir(c.LogPath)
 		if err != nil {
-			mng.Close()
-			return nil, err
+			w.errorch <- err
+			return
 		}
 
 		files := make([]string, 0, 10)
@@ -133,47 +89,93 @@ func NewWriterFromConfig(c *Config) (RollingWriter, error) {
 		for _, file := range files {
 		retry:
 			select {
-			case writer.rollingfilech <- path.Join(c.LogPath, file):
+			case w.rollingfilech <- path.Join(c.LogPath, file):
 			default:
-				writer.DoRemove()
+				w.DoRemove()
 				goto retry // remove the file and retry
 			}
 		}
 	}
 
-	switch c.WriterMode {
-	case "none":
-		rollingWriter = &writer
-	case "lock":
-		rollingWriter = &LockedWriter{
-			Writer: writer,
+	w.file = file
+	w.errorch <- nil
+
+	logbuffer := make([]byte, 0, 1024*1024)
+	bbuffer := bytes.NewBuffer(logbuffer)
+	ticker := time.NewTicker(1 * time.Second)
+	for {
+		select {
+		case logmsg := <-w.writech:
+			if len(logmsg)+bbuffer.Len() < 1024*1024 {
+				bbuffer.Write(logmsg)
+			} else {
+				n, err := bbuffer.WriteTo(w.file)
+				if err != nil {
+					log.Println("File write", n, err)
+				}
+				bbuffer.Reset()
+				if len(logmsg) > (1024*1024)/4 {
+					n, err := w.file.Write(logmsg)
+					if err != nil {
+						log.Println("File write", n, err)
+					}
+				} else {
+					bbuffer.Write(logmsg)
+				}
+			}
+		case filename := <-w.fire:
+			if err := w.Reopen(filename); err != nil {
+				log.Println("File rolling error", err)
+			}
+		case <-ticker.C:
+			if bbuffer.Len() > 0 {
+				n, err := bbuffer.WriteTo(w.file)
+				if err != nil {
+					log.Println("File write", n, err)
+				}
+				bbuffer.Reset()
+			}
+		case <-w.errorch:
+			// Stoping write
+			if bbuffer.Len() > 0 {
+				n, err:= bbuffer.WriteTo(w.file)
+				if err != nil {
+					log.Println("File write", n, err)
+				}
+			}
+			w.file.Close()
+			w.errorch <- nil
+			return
 		}
-	case "async":
-		wr := &AsynchronousWriter{
-			ctx:     make(chan int),
-			queue:   make(chan []byte, QueueSize),
-			errChan: make(chan error, QueueSize),
-			wg:      sync.WaitGroup{},
-			closed:  0,
-			Writer:  writer,
-		}
-		// start the asynchronous writer
-		wr.wg.Add(1)
-		go wr.writer()
-		wr.wg.Wait()
-		rollingWriter = wr
-	case "buffer":
-		// bufferWriterThershould unit is Byte
-		bf := make([]byte, 0, c.BufferWriterThershould*2)
-		rollingWriter = &BufferWriter{
-			Writer:  writer,
-			buf:     &bf,
-			swaping: 0,
-		}
-	default:
-		mng.Close()
-		return nil, ErrInvalidArgument
 	}
+
+}
+
+// NewWriterFromConfig generate the rollingWriter with given config
+func NewWriterFromConfig(c *Config) (RollingWriter, error) {
+	// Start the Manager
+	mng, err := NewManager(c)
+	if err != nil {
+		return nil, err
+	}
+
+	var rollingWriter RollingWriter
+	writer := Writer{
+		m:       mng,
+		fire:    mng.Fire(),
+		cf:      c,
+		writech: make(chan []byte, 4*1024),
+		errorch: make(chan error),
+	}
+
+	go writer.fileWriter()
+	err = <-writer.errorch
+	if err != nil {
+		mng.Close()
+		log.Println("Some error", err)
+		os.Exit(1)
+	}
+	rollingWriter = &writer
 	return rollingWriter, nil
 }
 
@@ -240,14 +242,6 @@ func (w *Writer) CompressFile(oldfile *os.File, cmpname string) error {
 	return nil
 }
 
-// AsynchronousWriterErrorChan return the error channel for asyn writer
-func AsynchronousWriterErrorChan(wr RollingWriter) (chan error, error) {
-	if w, ok := wr.(*AsynchronousWriter); ok {
-		return w.errChan, nil
-	}
-	return nil, ErrInvalidArgument
-}
-
 // Reopen do the rotate, open new file and swap FD then trate the old FD
 func (w *Writer) Reopen(file string) error {
 	if w.cf.FilterEmptyBackup {
@@ -311,186 +305,19 @@ func (w *Writer) Reopen(file string) error {
 }
 
 func (w *Writer) Write(b []byte) (int, error) {
-	var ok = false
-	for !ok {
-		select {
-		case filename := <-w.fire:
-			if err := w.Reopen(filename); err != nil {
-				return 0, err
-			}
-		default:
-			ok = true
-		}
-	}
-
-	fp := atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&w.file)))
-	file := (*os.File)(fp)
-	return file.Write(b)
-}
-
-func (w *LockedWriter) Write(b []byte) (n int, err error) {
-	w.Lock()
-
-	var ok = false
-	for !ok {
-		select {
-		case filename := <-w.fire:
-			if err := w.Reopen(filename); err != nil {
-				w.Unlock()
-				return 0, err
-			}
-		default:
-			ok = true
-		}
-	}
-
-	n, err = w.file.Write(b)
-	w.Unlock()
-	return
-}
-
-// Only when the error channel is empty, otherwise nothing will write and the last error will be
-// returned the error channel
-func (w *AsynchronousWriter) Write(b []byte) (int, error) {
-	if atomic.LoadInt32(&w.closed) == 0 {
-		var ok = false
-		for !ok {
-			select {
-			case err := <-w.errChan:
-				// NOTE this error caused by last write maybe ignored
-				return 0, err
-			default:
-				ok = true
-			}
-		}
-
-		select {
-		case w.queue <- append(_asyncBufferPool.Get().([]byte)[0:0], b...)[:len(b)]:
-			return len(b), nil
-		default:
-			return 0, ErrQueueFull
-		}
-	}
-
-	return 0, ErrClosed
-}
-
-// writer do the asynchronous write independently
-// Take care of reopen, I am not sure if there need no lock
-func (w *AsynchronousWriter) writer() {
-	var err error
-	w.wg.Done()
-	for {
-		select {
-		case filename := <-w.fire:
-			if err = w.Reopen(filename); err != nil && len(w.errChan) < cap(w.errChan) {
-				w.errChan <- err
-			}
-		case b := <-w.queue:
-			if _, err = w.file.Write(b); err != nil && len(w.errChan) < cap(w.errChan) {
-				w.errChan <- err
-			}
-			_asyncBufferPool.Put(b)
-		case <-w.ctx:
-			return
-		}
-	}
-}
-
-func (w *BufferWriter) Write(b []byte) (int, error) {
-	var ok = false
-	for !ok {
-		select {
-		case filename := <-w.fire:
-			if err := w.Reopen(filename); err != nil {
-				return 0, err
-			}
-		default:
-			ok = true
-		}
-	}
-
-	w.lockBuf.Lock()
-	*(w.buf) = append(*w.buf, b...)
-	w.lockBuf.Unlock()
-
-	if len(*w.buf) > w.cf.BufferWriterThershould && atomic.CompareAndSwapInt32(&w.swaping, 0, 1) {
-		nb := make([]byte, 0, w.cf.BufferWriterThershould*2)
-		ob := atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&w.buf)), (unsafe.Pointer(&nb)))
-		w.file.Write(*(*[]byte)(ob))
-		atomic.StoreInt32(&w.swaping, 0)
-	}
+	w.writech <- b
 	return len(b), nil
+
 }
 
 // Close the file and return
 func (w *Writer) Close() error {
 	defer recover()
-
+	w.errorch <- nil
+	select {
+	case <-w.errorch:
+	case <-time.After(4 * time.Second):
+	}
 	w.m.Close()
-
-	return (*os.File)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&w.file)))).Close()
-}
-
-// Close lock and close the file
-func (w *LockedWriter) Close() error {
-	w.Lock()
-	defer w.Unlock()
-
-	func() {
-		defer recover()
-		w.m.Close()
-	}()
-
-	return w.file.Close()
-}
-
-// Close set closed and close the file once
-func (w *AsynchronousWriter) Close() error {
-	if atomic.CompareAndSwapInt32(&w.closed, 0, 1) {
-		close(w.ctx)
-		w.onClose()
-
-		func() {
-			defer recover()
-			w.m.Close()
-		}()
-		return w.file.Close()
-	}
-	return ErrClosed
-}
-
-// onClose process remaining bufferd data for asynchronous writer
-func (w *AsynchronousWriter) onClose() {
-	var err error
-	for {
-		select {
-		case b := <-w.queue:
-			// flush all remaining field
-			if _, err = w.file.Write(b); err != nil {
-				select {
-				case w.errChan <- err:
-				default:
-					_asyncBufferPool.Put(b)
-					return
-				}
-			}
-			_asyncBufferPool.Put(b)
-		default: // after the queue was empty, return
-			return
-		}
-	}
-}
-
-// Close bufferWriter flush all buffered write then close file
-func (w *BufferWriter) Close() error {
-	w.lockBuf.Lock()
-	defer w.lockBuf.Unlock()
-	func() {
-		defer recover()
-		w.m.Close()
-	}()
-
-	w.file.Write(*w.buf)
-	return w.file.Close()
+	return nil
 }

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arthurkiller/rollingwriter"
+	"github.com/nipuntalukdar/rollingwriter"
 )
 
 func main() {
@@ -22,17 +22,8 @@ func main() {
 		// - 大小滚动: 配置单个日志文件(未压缩)的滚动大小门限, 如1G, 500M
 		RollingPolicy:      rollingwriter.TimeRolling, //配置滚动策略 norolling timerolling volumerolling
 		RollingTimePattern: "* * * * * *",             //配置时间滚动策略
-		RollingVolumeSize:  "2k",                      //配置截断文件下限大小
+		RollingVolumeSize:  "20k",                      //配置截断文件下限大小
 
-		// writer 支持4种不同的 mode:
-		// 1. none 2. lock
-		// 3. async 4. buffer
-		// - 无保护的 writer: 不提供并发安全保障
-		// - lock 保护的 writer: 提供由 mutex 保护的并发安全保障
-		// - 异步 writer: 异步 write, 并发安全. 异步开启后忽略 Lock 选项
-		WriterMode: "lock",
-		// BufferWriterThershould in B
-		BufferWriterThershould: 8 * 1024 * 1024,
 		// Compress will compress log file with gzip
 		Compress: true,
 	}
@@ -48,11 +39,13 @@ func main() {
 	wg := sync.WaitGroup{}
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
-		go func() {
-			for {
-				fmt.Fprintf(writer, "now :%s \n", time.Now())
+		go func(w *sync.WaitGroup) {
+			for j := 0; j < 10000 ; j++{
+				fmt.Fprintf(writer, "now the time is given here :%s \n", time.Now())
+				time.Sleep(10 * time.Millisecond)
 			}
-		}()
+			w.Done()
+		}(&wg)
 	}
 	wg.Wait()
 }

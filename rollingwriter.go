@@ -95,12 +95,6 @@ type Config struct {
 	RollingTimePattern string `json:"rolling_time_pattern"`
 	RollingVolumeSize  string `json:"rolling_volume_size"`
 
-	// WriterMode in 4 modes below
-	// 1. none 2. lock
-	// 3. async 4. buffer
-	WriterMode string `json:"writer_mode"`
-	// BufferWriterThershould in Byte
-	BufferWriterThershould int `json:"buffer_thershould"`
 	// Compress will compress log file with gzip
 	Compress bool `json:"compress"`
 
@@ -137,8 +131,6 @@ func NewDefaultConfig() Config {
 		RollingPolicy:          1,             // TimeRotate by default
 		RollingTimePattern:     "0 0 0 * * *", // Rolling at 00:00 AM everyday
 		RollingVolumeSize:      "1G",
-		WriterMode:             "lock",
-		BufferWriterThershould: 64,
 		Compress:               false,
 	}
 }
@@ -185,35 +177,6 @@ func WithFileExtension(ext string) Option {
 func WithFileFormatter(formatter LogFileFormatter) Option {
 	return func(p *Config) {
 		p.FileFormatter = formatter
-	}
-}
-
-// WithAsynchronous enable the asynchronous write for writer
-func WithAsynchronous() Option {
-	return func(p *Config) {
-		p.WriterMode = "async"
-	}
-}
-
-// WithLock will enable the lock in writer
-// Writer will call write with the Lock to guarantee the parallel safe
-func WithLock() Option {
-	return func(p *Config) {
-		p.WriterMode = "lock"
-	}
-}
-
-// WithBuffer will enable the buffer writer mode
-func WithBuffer() Option {
-	return func(p *Config) {
-		p.WriterMode = "buffer"
-	}
-}
-
-// WithBufferThershould set buffer write thershould
-func WithBufferThershould(n int) Option {
-	return func(p *Config) {
-		p.BufferWriterThershould = n
 	}
 }
 
