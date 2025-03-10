@@ -72,5 +72,5 @@ Usage of ./demo:
 ./demo --configfromfile --configfile config.json
 
 ```
-
-Any suggestion or new features, please create an [issue](https://github.com/nipuntalukdar/rollingWriter/issues/new)
+An example for logger integration with [hashicorp logger](https://github.com/hashicorp/go-hclog) is available [here](https://github.com/nipuntalukdar/NipunTalukdarExamples/tree/master/go/logrolling).
+Any suggestion or new features needed, please create an [issue](https://github.com/nipuntalukdar/rollingWriter/issues/new) .
