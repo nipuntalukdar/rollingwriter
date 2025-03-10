@@ -1,9 +1,10 @@
-# RollingWriter [![Build Status](https://travis-ci.org/arthurkiller/rollingWriter.svg?branch=master)](https://travis-ci.org/arthurkiller/rollingWriter) [![Go Report Card](https://goreportcard.com/badge/github.com/arthurkiller/rollingwriter)](https://goreportcard.com/report/github.com/arthurkiller/rollingwriter) [![GoDoc](https://godoc.org/github.com/arthurkiller/rollingWriter?status.svg)](https://godoc.org/github.com/arthurkiller/rollingWriter) [![codecov](https://codecov.io/gh/arthurkiller/rollingwriter/branch/master/graph/badge.svg)](https://codecov.io/gh/arthurkiller/rollingwriter) [![Awesome](https://cdn.rawgit.com/sindresorhus/awesome/d7305f38d29fed78fa85652e3a63e154dd8e8829/media/badge.svg)](https://github.com/avelino/awesome-go#logging)
-RollingWriter is an auto rotate `io.Writer` implementation. It can works well with logger.
-
-__Awesome Go popular log helper__
-
-__New Version v2.0 is comming out! Much more Powerfull and Efficient. Try it by follow the demo__
+# RollingWriter 
+RollingWriter is an auto rotate `io.Writer` implementation. It can work well with logger.
+`This repo is a fork` of [this rollingwriter repo](https://github.com/arthurkiller/rollingwriter). But I made it an independent repo as there were many changes for simplification and performance. Major changes are:
+* The logs are always added asynchronouly to the file
+* Log messages are always buffered first and hence many logs may be added to the underlying file in one shot
+* Writing to the file and roll over of the file is handled by by the same go routine and hence the need for synchronization across different go routines are no longer necessary
+* Locks are removed. All communications are through channels without explicit synchronization with locks
 
 RollingWriter contains 2 separate patrs:
 * Manager: decide when to rotate the file with policy. RlingPolicy give out the rolling policy
@@ -11,33 +12,29 @@ RollingWriter contains 2 separate patrs:
     * TimeRolling: rolling by time
     * VolumeRolling: rolling by file size
 
-* IOWriter: impement the io.Writer and do the io write
-    * Writer: not parallel safe writer
-    * LockedWriter: parallel safe garented by lock
-    * AsyncWtiter: parallel safe async writer
-    * BufferWriter: merge serval write into one `file.Write()`
+* Writer: impement the io.Writer and do the io write
+    * Concurrent and safe for adding logs from multiple go routines
+    * Logs are added asynchronously to file without blocking the callers
+    * Log messages are buffered and write to files may add multiple messages in operation 
 
 ## Features
 * Auto rotate with multi rotate policies
-* Implement go io.Writer, provide parallel safe writer
+* Implement parallel and safe io.Writer
 * Max remain rolling files with auto cleanup
 * Easy for user to implement your manager
 
 ## Benchmark
 ```bash
-goos: darwin
+$ go test -bench=.
+goos: linux
 goarch: amd64
-pkg: github.com/arthurkiller/rollingWriter
-BenchmarkWrite-4                          300000              5952 ns/op               0 B/op          0 allocs/op
-BenchmarkParallelWrite-4                  200000              7846 ns/op               0 B/op          0 allocs/op
-BenchmarkAsynWrite-4                      200000              7917 ns/op           16324 B/op          1 allocs/op
-BenchmarkParallelAsynWrite-4              200000              8632 ns/op           12513 B/op          1 allocs/op
-BenchmarkLockedWrite-4                    200000              5829 ns/op               0 B/op          0 allocs/op
-BenchmarkParallelLockedWrite-4            200000              7796 ns/op               0 B/op          0 allocs/op
-BenchmarkBufferWrite-4                    200000              6943 ns/op            1984 B/op          4 allocs/op
-BenchmarkParallelBufferWrite-4           1000000              1026 ns/op            7129 B/op          1 allocs/op
+pkg: github.com/nipuntalukdar/rollingwriter
+cpu: Intel(R) Xeon(R) Gold 6338N CPU @ 2.20GHz
+BenchmarkWrite-16            	 1000000	      1143 ns/op	       1 B/op	       0 allocs/op
+BenchmarkParallelWrite-16    	 1000000	      1362 ns/op	       1 B/op	       0 allocs/op
 PASS
-ok      github.com/arthurkiller/rollingWriter   14.867s
+ok  	github.com/nipuntalukdar/rollingwriter	2.596s
+
 ```
 
 ## Quick Start
@@ -49,6 +46,31 @@ ok      github.com/arthurkiller/rollingWriter   14.867s
 
 	writer.Write([]byte("hello, world"))
 ```
-Want more? View `demo` for more details.
+or 
+```golang
+	writer, err := rollingwriter.NewWriterFromConfigFile("/path/to/config.json")
+	if err != nil {
+		panic(err)
+	}
 
-Any suggestion or new feature inneed, please [put up an issue](https://github.com/arthurkiller/rollingWriter/issues/new)
+	writer.Write([]byte("hello, world"))
+```
+For details, check `demo` folder for more details. 
+Detailded examples with confifg file are given.
+To run the examples:
+```bash
+cd demo
+go build
+# We will get the demo executable.
+./demo --help
+Usage of ./demo:
+  -configfile string
+    	The config JSON file to use (default "config.json")
+  -configfromfile
+    	Read config from file
+# An example run
+./demo --configfromfile --configfile config.json
+
+```
+
+Any suggestion or new features, please create an [issue](https://github.com/nipuntalukdar/rollingWriter/issues/new)
