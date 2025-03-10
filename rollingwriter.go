@@ -17,13 +17,16 @@ const (
 )
 
 var (
-	// BufferSize defined the buffer size, by default 1 KB buffer will be allocated
-	BufferSize = 1024
+	// BufferSize defined the buffer size for log messages, default 1 MB
+	BufferSize = 1024 * 1024
 	// QueueSize defined the queue size for asynchronize write
-	QueueSize = 1024
+	QueueSize = 8 * 1024
 	// Precision defined the precision about the reopen operation condition
 	// check duration within second
 	Precision = 1
+	//Max write to file interval in seconds
+	MaxWriteInterval = 1
+
 	// DefaultFileMode set the default open mode rw-r--r-- by default
 	DefaultFileMode = os.FileMode(0644)
 	// DefaultFileFlag set the default file flag
@@ -74,16 +77,16 @@ type Config struct {
 	//
 	// NOTICE: blank field will be ignored
 	// By default we using '-' as separator, you can set it yourself
-	TimeTagFormat string `json:"time_tag_format"`
-	LogPath       string `json:"log_path"`
-	FileName      string `json:"file_name"`
+	TimeTagFormat string `json:"time_tag_format,omitempty"`
+	LogPath       string `json:"log_path,omitempty"`
+	FileName      string `json:"file_name,omitempty"`
 	// FileExtension defines the log file extension. By default, it's 'log'
-	FileExtension string `json:"file_extension"`
+	FileExtension string `json:"file_extension,omitempty"`
 	// FileFormatter log file path formatter for the file start write
 	// By default, append '.gz' suffix when Compress is true
 	FileFormatter LogFileFormatter `json:"-"`
 	// MaxRemain will auto clear the roling file list, set 0 will disable auto clean
-	MaxRemain int `json:"max_remain"`
+	MaxRemain int `json:"max_remain,omitempty"`
 
 	// RollingPolicy give out the rolling policy
 	// We got 3 policies(actually, 2):
@@ -91,15 +94,21 @@ type Config struct {
 	//	1. WithoutRolling: no rolling will happen
 	//	2. TimeRolling: rolling by time
 	//	3. VolumeRolling: rolling by file size
-	RollingPolicy      int    `json:"rolling_ploicy"`
-	RollingTimePattern string `json:"rolling_time_pattern"`
-	RollingVolumeSize  string `json:"rolling_volume_size"`
+	RollingPolicy      int    `json:"rolling_ploicy,omitempty"`
+	RollingTimePattern string `json:"rolling_time_pattern,omitempty"`
+	RollingVolumeSize  string `json:"rolling_volume_size,omitempty"`
 
 	// Compress will compress log file with gzip
-	Compress bool `json:"compress"`
+	Compress bool `json:"compress,omitempty"`
 
 	// FilterEmptyBackup will not backup empty file if you set it true
-	FilterEmptyBackup bool `json:"filter_empty_backup"`
+	FilterEmptyBackup bool `json:"filter_empty_backup,omitempty"`
+
+	//Maximum buffer  size
+	BufferSize int `json:"max_buffer_size,omitempty"`
+
+	//Max queue size for log messages
+	QueueSize  int `json:"max_queue_size,omitempty"`
 }
 
 func (c *Config) fileFormat(start time.Time) (filename string) {
@@ -131,6 +140,8 @@ func NewDefaultConfig() Config {
 		RollingPolicy:          1,             // TimeRotate by default
 		RollingTimePattern:     "0 0 0 * * *", // Rolling at 00:00 AM everyday
 		RollingVolumeSize:      "1G",
+		BufferSize:             BufferSize,
+		QueueSize:              QueueSize,
 		Compress:               false,
 	}
 }
