@@ -100,13 +100,20 @@ func (w *Writer) fileWriter() {
 	w.file = file
 	w.errorch <- nil
 
-	logbuffer := make([]byte, 0, 1024*1024)
+	logbuffer := make([]byte, 0, BufferSize)
 	bbuffer := bytes.NewBuffer(logbuffer)
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(time.Duration(MaxWriteInterval) * time.Second)
+
+	if BufferSize < 2048 {
+		BufferSize = 2048
+	}
+	directWriteMsgSize := BufferSize / 4
+	
 	for {
 		select {
 		case logmsg := <-w.writech:
-			if len(logmsg)+bbuffer.Len() < 1024*1024 {
+			// First, try to add the logmsg to buffer always
+			if len(logmsg)+bbuffer.Len() < BufferSize {
 				bbuffer.Write(logmsg)
 			} else {
 				n, err := bbuffer.WriteTo(w.file)
@@ -114,7 +121,8 @@ func (w *Writer) fileWriter() {
 					log.Println("File write", n, err)
 				}
 				bbuffer.Reset()
-				if len(logmsg) > (1024*1024)/4 {
+				// if the new message is big, write to file directly
+				if len(logmsg) > directWriteMsgSize {
 					n, err := w.file.Write(logmsg)
 					if err != nil {
 						log.Println("File write", n, err)
@@ -160,11 +168,14 @@ func NewWriterFromConfig(c *Config) (RollingWriter, error) {
 	}
 
 	var rollingWriter RollingWriter
+	if QueueSize < 64 {
+		QueueSize = 64
+	}
 	writer := Writer{
 		m:       mng,
 		fire:    mng.Fire(),
 		cf:      c,
-		writech: make(chan []byte, 4*1024),
+		writech: make(chan []byte, QueueSize),
 		errorch: make(chan error),
 	}
 

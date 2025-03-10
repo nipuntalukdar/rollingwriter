@@ -8,44 +8,51 @@ import (
 	"github.com/nipuntalukdar/rollingwriter"
 )
 
-func main() {
-	// writer 实现了 io.Writer 的全部接口
-	// 使用配置方式生成一个 writer 或者 Option 都可以
+func run_writer() {
+	// Write implements an interface to io.Writer
 	config := rollingwriter.Config{
-		LogPath:       "./log",        //日志路径
-		TimeTagFormat: "060102150405", //时间格式串
-		FileName:      "test",         //日志文件名
-		MaxRemain:     5,              //配置日志最大存留数
+		LogPath:       "./log",        //Log path
+		TimeTagFormat: "060102150405", //Time format string
+		FileName:      "test",         //Log file name
+		MaxRemain:     5,              //Maximum number of log foles to retain
 
-		// 目前有2中滚动策略: 按照时间滚动按照大小滚动
-		// - 时间滚动: 配置策略如同 crontable, 例如,每天0:0切分, 则配置 0 0 0 * * *
-		// - 大小滚动: 配置单个日志文件(未压缩)的滚动大小门限, 如1G, 500M
-		RollingPolicy:      rollingwriter.TimeRolling, //配置滚动策略 norolling timerolling volumerolling
-		RollingTimePattern: "* * * * * *",             //配置时间滚动策略
-		RollingVolumeSize:  "20k",                      //配置截断文件下限大小
+		// There are currently two rolling strategis:
+		// rolling according to time rolling according to size
+		// Time rolling: The configuration strategy is like crontable.
+		// For example, if it is split at 0:0 every day, then configure 0 0 0 * * *
+		// Size rolling: Configure the rolling size threshold of a single
+		// log file (uncompressed), such as 1G, 500M, 100K etc.
+
+		RollingPolicy:      rollingwriter.TimeRolling, //Rolling strategy: norolling timerolling volumerolling
+		RollingTimePattern: "30 * * * * *",            //Rolling time pattern, roll over every hour
+		RollingVolumeSize:  "20k",                     //Minimum size before rolling
 
 		// Compress will compress log file with gzip
 		Compress: true,
 	}
 
-	// 创建一个 writer
+	//Create a  writer
 	writer, err := rollingwriter.NewWriterFromConfig(&config)
 	if err != nil {
-		// 应该处理错误
+		// We are just exiting without handling the error
 		panic(err)
 	}
 
-	// 并发读写即可
+	// 10 writer concurrenly adding logs
 	wg := sync.WaitGroup{}
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(w *sync.WaitGroup) {
-			for j := 0; j < 10000 ; j++{
+			for j := 0; j < 1000; j++ {
 				fmt.Fprintf(writer, "now the time is given here :%s \n", time.Now())
 				time.Sleep(10 * time.Millisecond)
 			}
 			w.Done()
 		}(&wg)
 	}
+	// Wait for all writers to be done
 	wg.Wait()
+
+	//Close the underlying writer
+	writer.Close()
 }
