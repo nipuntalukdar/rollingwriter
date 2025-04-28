@@ -108,7 +108,7 @@ func (w *Writer) fileWriter() {
 		BufferSize = 2048
 	}
 	directWriteMsgSize := BufferSize / 4
-	
+
 	for {
 		select {
 		case logmsg := <-w.writech:
@@ -146,7 +146,7 @@ func (w *Writer) fileWriter() {
 		case <-w.errorch:
 			// Stoping write
 			if bbuffer.Len() > 0 {
-				n, err:= bbuffer.WriteTo(w.file)
+				n, err := bbuffer.WriteTo(w.file)
 				if err != nil {
 					log.Println("File write", n, err)
 				}
@@ -156,7 +156,6 @@ func (w *Writer) fileWriter() {
 			return
 		}
 	}
-
 }
 
 // NewWriterFromConfig generate the rollingWriter with given config
@@ -318,7 +317,6 @@ func (w *Writer) Reopen(file string) error {
 func (w *Writer) Write(b []byte) (int, error) {
 	w.writech <- b
 	return len(b), nil
-
 }
 
 // Close the file and return
