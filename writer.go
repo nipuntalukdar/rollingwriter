@@ -220,12 +220,10 @@ func NewWriterFromConfigFile(path string) (RollingWriter, error) {
 
 // DoRemove will delete the oldest file
 func (w *Writer) DoRemove() {
-	select {
-	case file := <-w.rollingfilech:
-		// remove the oldest file
-		if err := os.Remove(file); err != nil {
-			log.Println("error in remove log file", file, err)
-		}
+	file := <-w.rollingfilech
+	// remove the oldest file
+	if err := os.Remove(file); err != nil {
+		log.Println("error in remove log file", file, err)
 	}
 }
 
