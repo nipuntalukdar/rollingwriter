@@ -24,7 +24,7 @@ var (
 	// Precision defined the precision about the reopen operation condition
 	// check duration within second
 	Precision = 1
-	//Max write to file interval in seconds
+	// Max write to file interval in seconds
 	MaxWriteInterval = 1
 
 	// DefaultFileMode set the default open mode rw-r--r-- by default
@@ -45,7 +45,7 @@ var (
 // Manager used to trigger rolling event.
 type Manager interface {
 	// Fire will return a string channel
-	// while the rolling event occoured, new file name will generate
+	// while the rolling event occurred, new file name will generate
 	Fire() chan string
 	// Close the Manager
 	Close()
@@ -69,8 +69,8 @@ type Config struct {
 	//	log file path is located here:
 	//	[LogPath]/[FileName].[FileExtension]
 	//
-	// 2. the tuncated log file
-	//	the tuncated log file is backup here:
+	// 2. the truncated log file
+	//	the truncated log file is backup here:
 	//	[LogPath]/[FileName].[FileExtension].[TimeTag]
 	//  if compressed true
 	//	[LogPath]/[FileName].[FileExtension].gz.[TimeTag]
@@ -104,11 +104,11 @@ type Config struct {
 	// FilterEmptyBackup will not backup empty file if you set it true
 	FilterEmptyBackup bool `json:"filter_empty_backup,omitempty"`
 
-	//Maximum buffer  size
+	// Maximum buffer  size
 	BufferSize int `json:"max_buffer_size,omitempty"`
 
-	//Max queue size for log messages
-	QueueSize  int `json:"max_queue_size,omitempty"`
+	// Max queue size for log messages
+	QueueSize int `json:"max_queue_size,omitempty"`
 }
 
 func (c *Config) fileFormat(start time.Time) (filename string) {
@@ -132,17 +132,17 @@ func (c *Config) fileFormat(start time.Time) (filename string) {
 // NewDefaultConfig return the default config
 func NewDefaultConfig() Config {
 	return Config{
-		LogPath:                "./log",
-		TimeTagFormat:          "200601021504",
-		FileName:               "log",
-		FileExtension:          "log",
-		MaxRemain:              -1,            // disable auto delete
-		RollingPolicy:          1,             // TimeRotate by default
-		RollingTimePattern:     "0 0 0 * * *", // Rolling at 00:00 AM everyday
-		RollingVolumeSize:      "1G",
-		BufferSize:             BufferSize,
-		QueueSize:              QueueSize,
-		Compress:               false,
+		LogPath:            "./log",
+		TimeTagFormat:      "200601021504",
+		FileName:           "log",
+		FileExtension:      "log",
+		MaxRemain:          -1,            // disable auto delete
+		RollingPolicy:      1,             // TimeRotate by default
+		RollingTimePattern: "0 0 0 * * *", // Rolling at 00:00 AM everyday
+		RollingVolumeSize:  "1G",
+		BufferSize:         BufferSize,
+		QueueSize:          QueueSize,
+		Compress:           false,
 	}
 }
 
@@ -191,7 +191,7 @@ func WithFileFormatter(formatter LogFileFormatter) Option {
 	}
 }
 
-// WithCompress will auto compress the tuncated log file with gzip
+// WithCompress will auto compress the truncated log file with gzip
 func WithCompress() Option {
 	return func(p *Config) {
 		p.Compress = true
