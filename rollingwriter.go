@@ -14,13 +14,19 @@ const (
 	WithoutRolling = iota
 	TimeRolling
 	VolumeRolling
+
+	// MinQueueSize define the minimum queue size for asynchronize write
+	DefaultQueueSize =  8 * 1024
+	// MinBufferSize define the minimum buffer size for log messages, 1 MB
+	DefaultBufferSize = 1024 * 1024
+
+	// MinQueueSize define the minimum queue size for asynchronize write
+	MinQueueSize =  64
+	// MinBufferSize define the minimum buffer size for log messages
+	MinBufferSize = 2048
 )
 
 var (
-	// BufferSize defined the buffer size for log messages, default 1 MB
-	BufferSize = 1024 * 1024
-	// QueueSize defined the queue size for asynchronize write
-	QueueSize = 8 * 1024
 	// Precision defined the precision about the reopen operation condition
 	// check duration within second
 	Precision = 1
@@ -140,8 +146,8 @@ func NewDefaultConfig() Config {
 		RollingPolicy:      1,             // TimeRotate by default
 		RollingTimePattern: "0 0 0 * * *", // Rolling at 00:00 AM everyday
 		RollingVolumeSize:  "1G",
-		BufferSize:         BufferSize,
-		QueueSize:          QueueSize,
+		BufferSize:         DefaultBufferSize,
+		QueueSize:          DefaultQueueSize,
 		Compress:           false,
 	}
 }

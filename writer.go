@@ -100,20 +100,17 @@ func (w *Writer) fileWriter() {
 	w.file = file
 	w.errorch <- nil
 
-	logbuffer := make([]byte, 0, BufferSize)
+	logbuffer := make([]byte, 0, c.BufferSize)
 	bbuffer := bytes.NewBuffer(logbuffer)
 	ticker := time.NewTicker(time.Duration(MaxWriteInterval) * time.Second)
 
-	if BufferSize < 2048 {
-		BufferSize = 2048
-	}
-	directWriteMsgSize := BufferSize / 4
+	directWriteMsgSize := c.BufferSize / 4
 
 	for {
 		select {
 		case logmsg := <-w.writech:
 			// First, try to add the logmsg to buffer always
-			if len(logmsg)+bbuffer.Len() < BufferSize {
+			if len(logmsg)+bbuffer.Len() < c.BufferSize {
 				bbuffer.Write(logmsg)
 			} else {
 				n, err := bbuffer.WriteTo(w.file)
@@ -160,6 +157,9 @@ func (w *Writer) fileWriter() {
 
 // NewWriterFromConfig generate the rollingWriter with given config
 func NewWriterFromConfig(c *Config) (RollingWriter, error) {
+	// Set defaults
+	sanitizeConfig(c)
+
 	// Start the Manager
 	mng, err := NewManager(c)
 	if err != nil {
@@ -167,14 +167,11 @@ func NewWriterFromConfig(c *Config) (RollingWriter, error) {
 	}
 
 	var rollingWriter RollingWriter
-	if QueueSize < 64 {
-		QueueSize = 64
-	}
 	writer := Writer{
 		m:       mng,
 		fire:    mng.Fire(),
 		cf:      c,
-		writech: make(chan []byte, QueueSize),
+		writech: make(chan []byte, c.QueueSize),
 		errorch: make(chan error),
 	}
 
@@ -216,6 +213,16 @@ func NewWriterFromConfigFile(path string) (RollingWriter, error) {
 		return nil, err
 	}
 	return NewWriterFromConfig(&cfg)
+}
+
+func sanitizeConfig(c *Config) {
+	if c.QueueSize < MinQueueSize {
+		c.QueueSize = MinQueueSize
+	}
+
+	if c.BufferSize < MinBufferSize {
+		c.BufferSize = MinBufferSize
+	}
 }
 
 // DoRemove will delete the oldest file
