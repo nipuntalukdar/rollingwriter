@@ -144,7 +144,7 @@ func (w *Writer) fileWriter() {
 				bbuffer.Reset()
 			}
 		case <-w.errorch:
-			// Stoping write
+			// Stopping write
 			if bbuffer.Len() > 0 {
 				n, err := bbuffer.WriteTo(w.file)
 				if err != nil {
