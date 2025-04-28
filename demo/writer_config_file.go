@@ -32,6 +32,6 @@ func run_wrtiter_config_from_file(configfile string) {
 	// Wait for all writers to be done
 	wg.Wait()
 
-	//Close the underlying writer
+	// Close the underlying writer
 	writer.Close()
 }
