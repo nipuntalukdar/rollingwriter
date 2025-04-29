@@ -40,15 +40,14 @@ func (w *Writer) fileWriter() {
 	}
 
 	// make dir for path if not exist
-	if err := os.MkdirAll(c.LogPath, 0700); err != nil {
-		w.errorch <- err
+	if err := os.MkdirAll(c.LogPath, c.DirMode); err != nil {
+		w.errorCh <- err
 		return
 	}
 
-	filepath := LogFilePath(c)
-	w.absPath = filepath
+	w.absPath = LogFilePath(c)
 	// open the file and get the FD
-	file, err := os.OpenFile(filepath, DefaultFileFlag, DefaultFileMode)
+	file, err := os.OpenFile(w.absPath, DefaultFileFlag, c.FileMode)
 	if err != nil {
 		w.errorch <- err
 		return
@@ -223,6 +222,14 @@ func sanitizeConfig(c *Config) {
 	if c.BufferSize < MinBufferSize {
 		c.BufferSize = MinBufferSize
 	}
+
+	if c.FileMode == 0 {
+		c.FileMode = DefaultFileMode
+	}
+
+	if c.DirMode == 0 {
+		c.DirMode = DefaultDirMode
+	}
 }
 
 // DoRemove will delete the oldest file
@@ -236,7 +243,7 @@ func (w *Writer) DoRemove() {
 
 // CompressFile compress log file write into .gz
 func (w *Writer) CompressFile(oldfile *os.File, cmpname string) error {
-	cmpfile, err := os.OpenFile(cmpname, DefaultFileFlag, DefaultFileMode)
+	cmpfile, err := os.OpenFile(cmpname, DefaultFileFlag, w.cf.FileMode)
 	if err != nil {
 		return err
 	}
@@ -274,7 +281,7 @@ func (w *Writer) Reopen(file string) error {
 	if err := os.Rename(w.absPath, file); err != nil {
 		return err
 	}
-	newfile, err := os.OpenFile(w.absPath, DefaultFileFlag, DefaultFileMode)
+	newfile, err := os.OpenFile(w.absPath, DefaultFileFlag, w.cf.FileMode)
 	if err != nil {
 		return err
 	}
@@ -287,7 +294,7 @@ func (w *Writer) Reopen(file string) error {
 				log.Println("error in compress rename tempfile", err)
 				return
 			}
-			oldfile, err := os.OpenFile(file+".tmp", DefaultFileFlag, DefaultFileMode)
+			oldfile, err := os.OpenFile(file+".tmp", DefaultFileFlag, w.cf.FileMode)
 			if err != nil {
 				log.Println("error in open tempfile", err)
 				return

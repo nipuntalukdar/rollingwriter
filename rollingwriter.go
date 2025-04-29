@@ -15,6 +15,11 @@ const (
 	TimeRolling
 	VolumeRolling
 
+	// DefaultFileMode set the default open mode rw-r--r-- by default
+	DefaultFileMode = os.FileMode(0644)
+	// DefaultDirMode set the default open mode rwx------ by default
+	DefaultDirMode = os.FileMode(0700)
+
 	// MinQueueSize define the minimum queue size for asynchronize write
 	DefaultQueueSize =  8 * 1024
 	// MinBufferSize define the minimum buffer size for log messages, 1 MB
@@ -33,8 +38,6 @@ var (
 	// Max write to file interval in seconds
 	MaxWriteInterval = 1
 
-	// DefaultFileMode set the default open mode rw-r--r-- by default
-	DefaultFileMode = os.FileMode(0644)
 	// DefaultFileFlag set the default file flag
 	DefaultFileFlag = os.O_RDWR | os.O_CREATE | os.O_APPEND
 
@@ -91,6 +94,13 @@ type Config struct {
 	// FileFormatter log file path formatter for the file start write
 	// By default, append '.gz' suffix when Compress is true
 	FileFormatter LogFileFormatter `json:"-"`
+
+	// Mode of log files created
+	FileMode os.FileMode `json:"file_mode,omitempty"`
+
+	// Directory mode, mode of directory created
+	DirMode os.FileMode `json:"dir_mode,omitempty"`
+
 	// MaxRemain will auto clear the roling file list, set 0 will disable auto clean
 	MaxRemain int `json:"max_remain,omitempty"`
 
@@ -142,6 +152,8 @@ func NewDefaultConfig() Config {
 		TimeTagFormat:      "200601021504",
 		FileName:           "log",
 		FileExtension:      "log",
+		FileMode:           DefaultFileMode,
+		DirMode:            DefaultDirMode,
 		MaxRemain:          -1,            // disable auto delete
 		RollingPolicy:      1,             // TimeRotate by default
 		RollingTimePattern: "0 0 0 * * *", // Rolling at 00:00 AM everyday
