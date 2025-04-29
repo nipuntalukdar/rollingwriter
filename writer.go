@@ -22,16 +22,17 @@ type Writer struct {
 	absPath       string
 	fire          chan string
 	cf            *Config
-	rollingfilech chan string
-	writech       chan []byte
-	errorch       chan error
+	rollingFileCh chan string
+	writeCh       chan []byte
+	errorCh       chan error
 }
 
 func (w *Writer) fileWriter() {
-	// makeup log path and create
 	c := w.cf
+
+	// makeup log path and create
 	if c.LogPath == "" || c.FileName == "" {
-		w.errorch <- ErrInvalidArgument
+		w.errorCh <- ErrInvalidArgument
 		return
 	}
 
@@ -40,24 +41,23 @@ func (w *Writer) fileWriter() {
 	}
 
 	// make dir for path if not exist
-	if err := os.MkdirAll(c.LogPath, 0700); err != nil {
-		w.errorch <- err
+	if err := os.MkdirAll(c.LogPath, c.DirMode); err != nil {
+		w.errorCh <- err
 		return
 	}
 
-	filepath := LogFilePath(c)
-	w.absPath = filepath
+	w.absPath = LogFilePath(c)
 	// open the file and get the FD
-	file, err := os.OpenFile(filepath, DefaultFileFlag, DefaultFileMode)
+	file, err := os.OpenFile(w.absPath, DefaultFileFlag, c.FileMode)
 	if err != nil {
-		w.errorch <- err
+		w.errorCh <- err
 		return
 	}
 	if c.MaxRemain > 0 {
-		w.rollingfilech = make(chan string, c.MaxRemain)
+		w.rollingFileCh = make(chan string, c.MaxRemain)
 		dir, err := os.ReadDir(c.LogPath)
 		if err != nil {
-			w.errorch <- err
+			w.errorCh <- err
 			return
 		}
 
@@ -89,7 +89,7 @@ func (w *Writer) fileWriter() {
 		for _, file := range files {
 		retry:
 			select {
-			case w.rollingfilech <- path.Join(c.LogPath, file):
+			case w.rollingFileCh <- path.Join(c.LogPath, file):
 			default:
 				w.DoRemove()
 				goto retry // remove the file and retry
@@ -98,22 +98,19 @@ func (w *Writer) fileWriter() {
 	}
 
 	w.file = file
-	w.errorch <- nil
+	w.errorCh <- nil
 
-	logbuffer := make([]byte, 0, BufferSize)
+	logbuffer := make([]byte, 0, c.BufferSize)
 	bbuffer := bytes.NewBuffer(logbuffer)
 	ticker := time.NewTicker(time.Duration(MaxWriteInterval) * time.Second)
 
-	if BufferSize < 2048 {
-		BufferSize = 2048
-	}
-	directWriteMsgSize := BufferSize / 4
-	
+	directWriteMsgSize := c.BufferSize / 4
+
 	for {
 		select {
-		case logmsg := <-w.writech:
+		case logmsg := <-w.writeCh:
 			// First, try to add the logmsg to buffer always
-			if len(logmsg)+bbuffer.Len() < BufferSize {
+			if len(logmsg)+bbuffer.Len() < c.BufferSize {
 				bbuffer.Write(logmsg)
 			} else {
 				n, err := bbuffer.WriteTo(w.file)
@@ -143,24 +140,26 @@ func (w *Writer) fileWriter() {
 				}
 				bbuffer.Reset()
 			}
-		case <-w.errorch:
-			// Stoping write
+		case <-w.errorCh:
+			// Stopping write
 			if bbuffer.Len() > 0 {
-				n, err:= bbuffer.WriteTo(w.file)
+				n, err := bbuffer.WriteTo(w.file)
 				if err != nil {
 					log.Println("File write", n, err)
 				}
 			}
 			w.file.Close()
-			w.errorch <- nil
+			w.errorCh <- nil
 			return
 		}
 	}
-
 }
 
 // NewWriterFromConfig generate the rollingWriter with given config
 func NewWriterFromConfig(c *Config) (RollingWriter, error) {
+	// Set defaults
+	sanitizeConfig(c)
+
 	// Start the Manager
 	mng, err := NewManager(c)
 	if err != nil {
@@ -168,19 +167,16 @@ func NewWriterFromConfig(c *Config) (RollingWriter, error) {
 	}
 
 	var rollingWriter RollingWriter
-	if QueueSize < 64 {
-		QueueSize = 64
-	}
 	writer := Writer{
 		m:       mng,
 		fire:    mng.Fire(),
 		cf:      c,
-		writech: make(chan []byte, QueueSize),
-		errorch: make(chan error),
+		writeCh: make(chan []byte, c.QueueSize),
+		errorCh: make(chan error),
 	}
 
 	go writer.fileWriter()
-	err = <-writer.errorch
+	err = <-writer.errorCh
 	if err != nil {
 		mng.Close()
 		log.Println("Some error", err)
@@ -219,20 +215,36 @@ func NewWriterFromConfigFile(path string) (RollingWriter, error) {
 	return NewWriterFromConfig(&cfg)
 }
 
+func sanitizeConfig(c *Config) {
+	if c.QueueSize < MinQueueSize {
+		c.QueueSize = MinQueueSize
+	}
+
+	if c.BufferSize < MinBufferSize {
+		c.BufferSize = MinBufferSize
+	}
+
+	if c.FileMode == 0 {
+		c.FileMode = DefaultFileMode
+	}
+
+	if c.DirMode == 0 {
+		c.DirMode = DefaultDirMode
+	}
+}
+
 // DoRemove will delete the oldest file
 func (w *Writer) DoRemove() {
-	select {
-	case file := <-w.rollingfilech:
-		// remove the oldest file
-		if err := os.Remove(file); err != nil {
-			log.Println("error in remove log file", file, err)
-		}
+	file := <-w.rollingFileCh
+	// remove the oldest file
+	if err := os.Remove(file); err != nil {
+		log.Println("error in remove log file", file, err)
 	}
 }
 
 // CompressFile compress log file write into .gz
 func (w *Writer) CompressFile(oldfile *os.File, cmpname string) error {
-	cmpfile, err := os.OpenFile(cmpname, DefaultFileFlag, DefaultFileMode)
+	cmpfile, err := os.OpenFile(cmpname, DefaultFileFlag, w.cf.FileMode)
 	if err != nil {
 		return err
 	}
@@ -270,7 +282,7 @@ func (w *Writer) Reopen(file string) error {
 	if err := os.Rename(w.absPath, file); err != nil {
 		return err
 	}
-	newfile, err := os.OpenFile(w.absPath, DefaultFileFlag, DefaultFileMode)
+	newfile, err := os.OpenFile(w.absPath, DefaultFileFlag, w.cf.FileMode)
 	if err != nil {
 		return err
 	}
@@ -283,7 +295,7 @@ func (w *Writer) Reopen(file string) error {
 				log.Println("error in compress rename tempfile", err)
 				return
 			}
-			oldfile, err := os.OpenFile(file+".tmp", DefaultFileFlag, DefaultFileMode)
+			oldfile, err := os.OpenFile(file+".tmp", DefaultFileFlag, w.cf.FileMode)
 			if err != nil {
 				log.Println("error in open tempfile", err)
 				return
@@ -305,7 +317,7 @@ func (w *Writer) Reopen(file string) error {
 		if w.cf.MaxRemain > 0 {
 		retry:
 			select {
-			case w.rollingfilech <- file:
+			case w.rollingFileCh <- file:
 			default:
 				w.DoRemove()
 				goto retry // remove the file and retry
@@ -316,17 +328,16 @@ func (w *Writer) Reopen(file string) error {
 }
 
 func (w *Writer) Write(b []byte) (int, error) {
-	w.writech <- b
+	w.writeCh <- b
 	return len(b), nil
-
 }
 
 // Close the file and return
 func (w *Writer) Close() error {
 	defer recover()
-	w.errorch <- nil
+	w.errorCh <- nil
 	select {
-	case <-w.errorch:
+	case <-w.errorCh:
 	case <-time.After(4 * time.Second):
 	}
 	w.m.Close()

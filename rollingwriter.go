@@ -14,21 +14,30 @@ const (
 	WithoutRolling = iota
 	TimeRolling
 	VolumeRolling
-)
-
-var (
-	// BufferSize defined the buffer size for log messages, default 1 MB
-	BufferSize = 1024 * 1024
-	// QueueSize defined the queue size for asynchronize write
-	QueueSize = 8 * 1024
-	// Precision defined the precision about the reopen operation condition
-	// check duration within second
-	Precision = 1
-	//Max write to file interval in seconds
-	MaxWriteInterval = 1
 
 	// DefaultFileMode set the default open mode rw-r--r-- by default
 	DefaultFileMode = os.FileMode(0644)
+	// DefaultDirMode set the default open mode rwx------ by default
+	DefaultDirMode = os.FileMode(0700)
+
+	// MinQueueSize define the minimum queue size for asynchronize write
+	DefaultQueueSize =  8 * 1024
+	// MinBufferSize define the minimum buffer size for log messages, 1 MB
+	DefaultBufferSize = 1024 * 1024
+
+	// MinQueueSize define the minimum queue size for asynchronize write
+	MinQueueSize =  64
+	// MinBufferSize define the minimum buffer size for log messages
+	MinBufferSize = 2048
+)
+
+var (
+	// Precision defined the precision about the reopen operation condition
+	// check duration within second
+	Precision = 1
+	// Max write to file interval in seconds
+	MaxWriteInterval = 1
+
 	// DefaultFileFlag set the default file flag
 	DefaultFileFlag = os.O_RDWR | os.O_CREATE | os.O_APPEND
 
@@ -45,7 +54,7 @@ var (
 // Manager used to trigger rolling event.
 type Manager interface {
 	// Fire will return a string channel
-	// while the rolling event occoured, new file name will generate
+	// while the rolling event occurred, new file name will generate
 	Fire() chan string
 	// Close the Manager
 	Close()
@@ -69,8 +78,8 @@ type Config struct {
 	//	log file path is located here:
 	//	[LogPath]/[FileName].[FileExtension]
 	//
-	// 2. the tuncated log file
-	//	the tuncated log file is backup here:
+	// 2. the truncated log file
+	//	the truncated log file is backup here:
 	//	[LogPath]/[FileName].[FileExtension].[TimeTag]
 	//  if compressed true
 	//	[LogPath]/[FileName].[FileExtension].gz.[TimeTag]
@@ -85,6 +94,13 @@ type Config struct {
 	// FileFormatter log file path formatter for the file start write
 	// By default, append '.gz' suffix when Compress is true
 	FileFormatter LogFileFormatter `json:"-"`
+
+	// Mode of log files created
+	FileMode os.FileMode `json:"file_mode,omitempty"`
+
+	// Directory mode, mode of directory created
+	DirMode os.FileMode `json:"dir_mode,omitempty"`
+
 	// MaxRemain will auto clear the roling file list, set 0 will disable auto clean
 	MaxRemain int `json:"max_remain,omitempty"`
 
@@ -104,11 +120,11 @@ type Config struct {
 	// FilterEmptyBackup will not backup empty file if you set it true
 	FilterEmptyBackup bool `json:"filter_empty_backup,omitempty"`
 
-	//Maximum buffer  size
+	// Maximum buffer  size
 	BufferSize int `json:"max_buffer_size,omitempty"`
 
-	//Max queue size for log messages
-	QueueSize  int `json:"max_queue_size,omitempty"`
+	// Max queue size for log messages
+	QueueSize int `json:"max_queue_size,omitempty"`
 }
 
 func (c *Config) fileFormat(start time.Time) (filename string) {
@@ -132,17 +148,19 @@ func (c *Config) fileFormat(start time.Time) (filename string) {
 // NewDefaultConfig return the default config
 func NewDefaultConfig() Config {
 	return Config{
-		LogPath:                "./log",
-		TimeTagFormat:          "200601021504",
-		FileName:               "log",
-		FileExtension:          "log",
-		MaxRemain:              -1,            // disable auto delete
-		RollingPolicy:          1,             // TimeRotate by default
-		RollingTimePattern:     "0 0 0 * * *", // Rolling at 00:00 AM everyday
-		RollingVolumeSize:      "1G",
-		BufferSize:             BufferSize,
-		QueueSize:              QueueSize,
-		Compress:               false,
+		LogPath:            "./log",
+		TimeTagFormat:      "200601021504",
+		FileName:           "log",
+		FileExtension:      "log",
+		FileMode:           DefaultFileMode,
+		DirMode:            DefaultDirMode,
+		MaxRemain:          -1,            // disable auto delete
+		RollingPolicy:      1,             // TimeRotate by default
+		RollingTimePattern: "0 0 0 * * *", // Rolling at 00:00 AM everyday
+		RollingVolumeSize:  "1G",
+		BufferSize:         DefaultBufferSize,
+		QueueSize:          DefaultQueueSize,
+		Compress:           false,
 	}
 }
 
@@ -191,7 +209,7 @@ func WithFileFormatter(formatter LogFileFormatter) Option {
 	}
 }
 
-// WithCompress will auto compress the tuncated log file with gzip
+// WithCompress will auto compress the truncated log file with gzip
 func WithCompress() Option {
 	return func(p *Config) {
 		p.Compress = true

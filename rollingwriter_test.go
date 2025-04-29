@@ -27,8 +27,11 @@ func TestOptions(t *testing.T) {
 		RollingTimePattern:     "0 0 0 * * *", // Rolling at 00:00 AM everyday
 		RollingVolumeSize:      "100mb",
 		Compress:               true,
-		BufferSize:             BufferSize,
-		QueueSize:              QueueSize,
+		BufferSize:             DefaultBufferSize,
+		QueueSize:              DefaultQueueSize,
 	}
+
+	sanitizeConfig(&destcfg)
+
 	assert.Equal(t, cfg, destcfg)
 }
