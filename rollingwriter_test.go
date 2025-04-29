@@ -30,5 +30,8 @@ func TestOptions(t *testing.T) {
 		BufferSize:             DefaultBufferSize,
 		QueueSize:              DefaultQueueSize,
 	}
+
+	sanitizeConfig(&destcfg)
+
 	assert.Equal(t, cfg, destcfg)
 }
