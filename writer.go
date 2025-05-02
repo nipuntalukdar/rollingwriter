@@ -212,22 +212,6 @@ func sanitizeConfig(c *Config) {
 	}
 }
 
-// DoRemove will delete the oldest file
-func (w *Writer) DoRemove() bool {
-	select {
-	case file := <-w.rotationEventsCh:
-		// remove the oldest file
-		if err := os.Remove(file); err != nil {
-			// TODO: pass error back via errorCh
-			log.Println("error in remove log file", file, err)
-		}
-		return true
-	default:
-		// Channel is empty, nothing to remove
-		return false
-	}
-}
-
 // CompressFile compress log file write into .gz
 func CompressFile(oldfile *os.File, cmpname string, fileMode os.FileMode) error {
 	cmpfile, err := os.OpenFile(cmpname, DefaultFileFlag, fileMode)
@@ -300,15 +284,7 @@ func (w *Writer) RotateFile(newBackUpFile string) error {
 			}
 		}
 
-		if w.conf.MaxBackups > 0 {
-		retry:
-			select {
-			case w.rotationEventsCh <- newBackUpFile:
-			default:
-				w.DoRemove()
-				goto retry // remove the file and retry
-			}
-		}
+		// TODO: prue files old backups if backups > MaxBackups
 	}()
 	return nil
 }

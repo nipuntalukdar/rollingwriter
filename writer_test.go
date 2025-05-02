@@ -136,7 +136,7 @@ func TestAutoRemove(t *testing.T) {
 		writer.Write(bf)
 	}
 	writer.Close()
-	writer.cf.MaxBackups = 0
+	writer.conf.MaxBackups = 0
 	clean()
 }
 
