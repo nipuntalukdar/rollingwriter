@@ -1,8 +1,8 @@
 package rollingwriter
 
 import (
+	"crypto/rand"
 	"io"
-	"math/rand"
 	"os"
 	"testing"
 )
@@ -43,11 +43,11 @@ func TestNewWriter(t *testing.T) {
 
 func TestWrite(t *testing.T) {
 	var writer io.WriteCloser
-	var c int = 1000
-	var l int = 1024
+	c := 1000
+	l := 1024
 
 	writer = newWriter()
-	for i := 0; i < c; i++ {
+	for range c {
 		bf := make([]byte, l)
 		rand.Read(bf)
 		writer.Write(bf)
@@ -56,20 +56,19 @@ func TestWrite(t *testing.T) {
 	clean()
 
 	writer = newVolumeWriter()
-	for i := 0; i < c; i++ {
+	for range c {
 		bf := make([]byte, l)
 		rand.Read(bf)
 		writer.Write(bf)
 	}
 	writer.Close()
 	clean()
-
 }
 
 func TestWriteParallel(t *testing.T) {
 	var writer io.WriteCloser
-	var c int = 1000
-	var l int = 1024
+	c := 1000
+	l := 1024
 
 	t.Run("none", func(t *testing.T) {
 		t.Parallel()
@@ -77,7 +76,7 @@ func TestWriteParallel(t *testing.T) {
 		bf := make([]byte, l)
 		rand.Read(bf)
 		writer.Write(bf)
-		for i := 0; i < c; i++ {
+		for range c {
 			bf := make([]byte, l)
 			rand.Read(bf)
 			writer.Write(bf)
@@ -89,8 +88,8 @@ func TestWriteParallel(t *testing.T) {
 
 func TestVolumeWriteParallel(t *testing.T) {
 	var writer io.WriteCloser
-	var c int = 1000
-	var l int = 1024
+	c := 1000
+	l := 1024
 
 	t.Run("none", func(t *testing.T) {
 		t.Parallel()
@@ -98,7 +97,7 @@ func TestVolumeWriteParallel(t *testing.T) {
 		bf := make([]byte, l)
 		rand.Read(bf)
 		writer.Write(bf)
-		for i := 0; i < c; i++ {
+		for range c {
 			bf := make([]byte, l)
 			rand.Read(bf)
 			writer.Write(bf)
@@ -108,30 +107,30 @@ func TestVolumeWriteParallel(t *testing.T) {
 	})
 }
 
-func TestReopen(t *testing.T) {
-	var c int = 1000
-	var l int = 1024
+func TestRotateFile(t *testing.T) {
+	c := 1000
+	l := 1024
 
 	t.Run("none", func(t *testing.T) {
 		t.Parallel()
 		writer := newWriter()
-		for i := 0; i < c; i++ {
+		for range c {
 			bf := make([]byte, l)
 			rand.Read(bf)
 			writer.Write(bf)
 		}
-		writer.Reopen("./test/unittest.reopen")
+		writer.RotateFile("./test/unittest.reopen")
 		writer.Close()
 		clean()
 	})
 }
 
 func TestAutoRemove(t *testing.T) {
-	var c int = 1000
-	var l int = 1024
+	c := 1000
+	l := 1024
 
 	writer := newWriter()
-	for i := 0; i < c; i++ {
+	for range c {
 		bf := make([]byte, l)
 		rand.Read(bf)
 		writer.Write(bf)
@@ -142,11 +141,11 @@ func TestAutoRemove(t *testing.T) {
 }
 
 func TestCompress(t *testing.T) {
-	var c int = 1000
-	var l int = 1024
+	c := 1000
+	l := 1024
 
 	writer := newWriter()
-	for i := 0; i < c; i++ {
+	for range c {
 		bf := make([]byte, l)
 		rand.Read(bf)
 		writer.Write(bf)

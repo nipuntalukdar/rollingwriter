@@ -49,11 +49,11 @@ var (
 	ErrQueueFull = errors.New("async log queue full")
 )
 
-// Manager used to trigger rolling event.
-type Manager interface {
-	// Fire will return a string channel
-	// while the rolling event occurred, new file name will generate
-	Fire() chan string
+// FileMonitor writes new backup file event.
+type FileMonitor interface {
+	// RotationEvents returns a string channel
+	// when rotation events occur, new backup filenames will be sent on this channel
+	RotationEvents() chan string
 	// Close the Manager
 	Close()
 }
@@ -86,9 +86,6 @@ type Config struct {
 	// By default we using '-' as separator, you can set it yourself
 	TimeTagFormat string `json:"time_tag_format,omitempty"`
 	FilePath      string `json:"file_path,omitempty"`
-	fileName      string
-	fileDir       string
-	fileExt       string
 
 	// Mode of log files created
 	FileMode os.FileMode `json:"file_mode,omitempty"`
@@ -130,10 +127,10 @@ func NewDefaultConfig() Config {
 		TimeTagFormat:      "200601021504",
 		FileMode:           DefaultFileMode,
 		DirMode:            DefaultDirMode,
-		MaxBackups:         -1,            // disable auto delete
+		MaxBackups:         0,             // disable backup pruning
 		RollingPolicy:      1,             // TimeRotate by default
 		RollingTimePattern: "0 0 0 * * *", // Rolling at 00:00 AM everyday
-		RollingVolumeSize:  "1G",
+		RollingVolumeSize:  "1M",
 		BufferSize:         DefaultBufferSize,
 		QueueSize:          DefaultQueueSize,
 		Compress:           false,
