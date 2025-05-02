@@ -151,7 +151,7 @@ func TestCompress(t *testing.T) {
 		rand.Read(bf)
 		writer.Write(bf)
 	}
-	writer.CompressFile(writer.file, "./test/unittest.gz")
+	CompressFile(writer.file, "./test/unittest.gz", os.FileMode(0644))
 	writer.Close()
 	clean()
 }

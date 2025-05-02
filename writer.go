@@ -229,8 +229,8 @@ func (w *Writer) DoRemove() bool {
 }
 
 // CompressFile compress log file write into .gz
-func (w *Writer) CompressFile(oldfile *os.File, cmpname string) error {
-	cmpfile, err := os.OpenFile(cmpname, DefaultFileFlag, w.cf.FileMode)
+func CompressFile(oldfile *os.File, cmpname string, fileMode os.FileMode) error {
+	cmpfile, err := os.OpenFile(cmpname, DefaultFileFlag, fileMode)
 	if err != nil {
 		return err
 	}
@@ -288,7 +288,7 @@ func (w *Writer) Reopen(file string) error {
 			}
 			var closeOnce sync.Once
 			defer closeOnce.Do(func() { oldfile.Close() })
-			if err := w.CompressFile(oldfile, file); err != nil {
+			if err := CompressFile(oldfile, file, w.cf.FileMode); err != nil {
 				log.Println("error in compress log file", err)
 				return
 			}
