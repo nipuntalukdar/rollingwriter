@@ -2,6 +2,7 @@ package rollingwriter
 
 import (
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,23 +12,23 @@ import (
 )
 
 type manager struct {
-	thresholdSize int64
-	startAt       time.Time
-	fire          chan string
-	cr            *cron.Cron
-	context       chan int
-	wg            sync.WaitGroup
-	lock          sync.Mutex
+	thresholdSize   int64
+	startAt         time.Time
+	newBackupFileCh chan string
+	cr              *cron.Cron
+	context         chan int
+	wg              sync.WaitGroup
+	lock            sync.Mutex
 }
 
 // NewManager generate the Manager with config
 func NewManager(c *Config) (Manager, error) {
 	m := &manager{
-		startAt: time.Now(),
-		cr:      cron.New(),
-		fire:    make(chan string),
-		context: make(chan int),
-		wg:      sync.WaitGroup{},
+		startAt:         time.Now(),
+		cr:              cron.New(),
+		newBackupFileCh: make(chan string),
+		context:         make(chan int),
+		wg:              sync.WaitGroup{},
 	}
 
 	// start the manager according to policy
@@ -38,7 +39,7 @@ func NewManager(c *Config) (Manager, error) {
 		return m, nil
 	case TimeRolling:
 		if err := m.cr.AddFunc(c.RollingTimePattern, func() {
-			m.fire <- m.GenLogFileName(c)
+			m.newBackupFileCh <- m.GenNewBackupFileName(c)
 		}); err != nil {
 			return nil, err
 		}
@@ -63,7 +64,7 @@ func NewManager(c *Config) (Manager, error) {
 						continue
 					}
 					if info, err := file.Stat(); err == nil && info.Size() > m.thresholdSize {
-						m.fire <- m.GenLogFileName(c)
+						m.newBackupFileCh <- m.GenNewBackupFileName(c)
 					}
 					file.Close()
 					// check if you need to prune backups
@@ -77,7 +78,7 @@ func NewManager(c *Config) (Manager, error) {
 
 // Fire return the fire channel
 func (m *manager) Fire() chan string {
-	return m.fire
+	return m.newBackupFileCh
 }
 
 // Close return stop the manager and return
@@ -126,12 +127,18 @@ func (m *manager) ParseVolume(c *Config) {
 	m.thresholdSize = int64(p) * unit
 }
 
-// GenLogFileName generate the new log file name, filename should be absolute path
-func (m *manager) GenLogFileName(c *Config) (filename string) {
+// GenNewBackupFileName generate the new backup file name, filename should be absolute path
+func (m *manager) GenNewBackupFileName(c *Config) string {
 	m.lock.Lock()
-	filename = c.fileFormat(m.startAt)
-	// reset the start time to now
-	m.startAt = time.Now()
-	m.lock.Unlock()
-	return
+	defer func() {
+		m.startAt = time.Now()
+		m.lock.Unlock()
+	}()
+
+	timeTag := m.startAt.Format(c.TimeTagFormat)
+	if c.Compress {
+		return path.Join(c.FilePath + ".gz." + timeTag)
+	}
+
+	return path.Join(c.FilePath + "." + timeTag)
 }

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path"
 	"time"
 )
 
@@ -122,16 +121,6 @@ type Config struct {
 
 	// Max queue size for log messages
 	QueueSize int `json:"max_queue_size,omitempty"`
-}
-
-func (c *Config) fileFormat(start time.Time) string {
-	// [FilePath].2007010215041517
-	timeTag := start.Format(c.TimeTagFormat)
-	if c.Compress {
-		return path.Join(c.FilePath + ".gz." + timeTag)
-	} else {
-		return path.Join(c.FilePath + "." + timeTag)
-	}
 }
 
 // NewDefaultConfig return the default config
