@@ -16,8 +16,7 @@ func clean() {
 
 func newWriter() *Writer {
 	cfg := NewDefaultConfig()
-	cfg.LogPath = "./test"
-	cfg.FileName = "unittest"
+	cfg.FilePath = "./test/unittest.log"
 	w, _ := NewWriterFromConfig(&cfg)
 	return w.(*Writer)
 }
@@ -26,17 +25,16 @@ func newVolumeWriter() *Writer {
 	cfg := NewDefaultConfig()
 	cfg.RollingPolicy = 3
 	cfg.RollingVolumeSize = "1mb"
-	cfg.LogPath = "./test"
-	cfg.FileName = "unittest"
+	cfg.FilePath = "./test/unittest.log"
 	w, _ := NewWriterFromConfig(&cfg)
 	return w.(*Writer)
 }
 
 func TestNewWriter(t *testing.T) {
 	if _, err := NewWriter(
-		WithTimeTagFormat("200601021504"), WithLogPath("./"), WithFileName("foo"),
+		WithTimeTagFormat("200601021504"), WithFilePath("./foo.log"),
 		WithCompress(),
-		WithMaxRemain(3), WithRollingVolumeSize("100mb"), WithRollingTimePattern("0 0 0 * * *"),
+		WithMaxBackups(3), WithRollingVolumeSize("100mb"), WithRollingTimePattern("0 0 0 * * *"),
 	); err != nil {
 		t.Fatal("error in test new writer", err)
 	}
@@ -139,7 +137,7 @@ func TestAutoRemove(t *testing.T) {
 		writer.Write(bf)
 	}
 	writer.Close()
-	writer.cf.MaxRemain = 0
+	writer.cf.MaxBackups = 0
 	clean()
 }
 

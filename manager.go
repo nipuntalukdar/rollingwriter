@@ -50,7 +50,6 @@ func NewManager(c *Config) (Manager, error) {
 			timer := time.NewTicker(time.Duration(Precision) * time.Second)
 			defer timer.Stop()
 
-			filepath := LogFilePath(c)
 			var file *os.File
 			var err error
 			m.wg.Done()
@@ -60,13 +59,14 @@ func NewManager(c *Config) (Manager, error) {
 				case <-m.context:
 					return
 				case <-timer.C:
-					if file, err = os.Open(filepath); err != nil {
+					if file, err = os.Open(c.FilePath); err != nil {
 						continue
 					}
 					if info, err := file.Stat(); err == nil && info.Size() > m.thresholdSize {
 						m.fire <- m.GenLogFileName(c)
 					}
 					file.Close()
+					// check if you need to prune backups
 				}
 			}
 		}()
@@ -128,13 +128,6 @@ func (m *manager) ParseVolume(c *Config) {
 
 // GenLogFileName generate the new log file name, filename should be absolute path
 func (m *manager) GenLogFileName(c *Config) (filename string) {
-	// if fileextention is not set, use the default value
-	// this line is added to provide backwards compatibility with the current code and unit tests
-	// in the next major release, this line should be removed.
-	if c.FileExtension == "" {
-		c.FileExtension = "log"
-	}
-
 	m.lock.Lock()
 	filename = c.fileFormat(m.startAt)
 	// reset the start time to now
