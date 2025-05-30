@@ -2,6 +2,7 @@ package rollingwriter
 
 import (
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,23 +12,23 @@ import (
 )
 
 type manager struct {
-	thresholdSize int64
-	startAt       time.Time
-	fire          chan string
-	cr            *cron.Cron
-	context       chan int
-	wg            sync.WaitGroup
-	lock          sync.Mutex
+	thresholdSize    int64
+	startAt          time.Time
+	cr               *cron.Cron
+	rotationEventsCh chan string
+	doneCh           chan bool
+	wg               sync.WaitGroup
+	lock             sync.Mutex
 }
 
 // NewManager generate the Manager with config
-func NewManager(c *Config) (Manager, error) {
+func NewManager(c *Config) (FileMonitor, error) {
 	m := &manager{
-		startAt: time.Now(),
-		cr:      cron.New(),
-		fire:    make(chan string),
-		context: make(chan int),
-		wg:      sync.WaitGroup{},
+		startAt:          time.Now(),
+		cr:               cron.New(),
+		rotationEventsCh: make(chan string),
+		doneCh:           make(chan bool),
+		wg:               sync.WaitGroup{},
 	}
 
 	// start the manager according to policy
@@ -38,61 +39,58 @@ func NewManager(c *Config) (Manager, error) {
 		return m, nil
 	case TimeRolling:
 		if err := m.cr.AddFunc(c.RollingTimePattern, func() {
-			m.fire <- m.GenLogFileName(c)
+			m.rotationEventsCh <- m.GenNewBackupFileName(c)
 		}); err != nil {
 			return nil, err
 		}
 		m.cr.Start()
 	case VolumeRolling:
 		m.ParseVolume(c)
-		m.wg.Add(1)
 		go func() {
 			timer := time.NewTicker(time.Duration(Precision) * time.Second)
 			defer timer.Stop()
 
-			filepath := LogFilePath(c)
 			var file *os.File
 			var err error
-			m.wg.Done()
 
 			for {
 				select {
-				case <-m.context:
+				case <-m.doneCh:
 					return
 				case <-timer.C:
-					if file, err = os.Open(filepath); err != nil {
+					if file, err = os.Open(c.FilePath); err != nil {
 						continue
 					}
 					if info, err := file.Stat(); err == nil && info.Size() > m.thresholdSize {
-						m.fire <- m.GenLogFileName(c)
+						m.rotationEventsCh <- m.GenNewBackupFileName(c)
 					}
 					file.Close()
+					// check if you need to prune backups
 				}
 			}
 		}()
-		m.wg.Wait()
 	}
 	return m, nil
 }
 
-// Fire return the fire channel
-func (m *manager) Fire() chan string {
-	return m.fire
+// RotationEvents returns a channel that provides new backup filenames when rotation events occur
+func (m *manager) RotationEvents() chan string {
+	return m.rotationEventsCh
 }
 
-// Close return stop the manager and return
+// Close stop the manager and returns
 func (m *manager) Close() {
-	close(m.context)
+	close(m.doneCh)
 	m.cr.Stop()
 }
 
 // ParseVolume parse the config volume format and return threshold
 func (m *manager) ParseVolume(c *Config) {
 	s := []byte(strings.ToUpper(c.RollingVolumeSize))
-	if !(strings.Contains(string(s), "K") || strings.Contains(string(s), "KB") ||
-		strings.Contains(string(s), "M") || strings.Contains(string(s), "MB") ||
-		strings.Contains(string(s), "G") || strings.Contains(string(s), "GB") ||
-		strings.Contains(string(s), "T") || strings.Contains(string(s), "TB")) {
+	if !strings.Contains(string(s), "K") && !strings.Contains(string(s), "KB") &&
+		!strings.Contains(string(s), "M") && !strings.Contains(string(s), "MB") &&
+		!strings.Contains(string(s), "G") && !strings.Contains(string(s), "GB") &&
+		!strings.Contains(string(s), "T") && !strings.Contains(string(s), "TB") {
 
 		// set the default threshold with 1GB
 		m.thresholdSize = 1024 * 1024 * 1024
@@ -126,19 +124,18 @@ func (m *manager) ParseVolume(c *Config) {
 	m.thresholdSize = int64(p) * unit
 }
 
-// GenLogFileName generate the new log file name, filename should be absolute path
-func (m *manager) GenLogFileName(c *Config) (filename string) {
-	// if fileextention is not set, use the default value
-	// this line is added to provide backwards compatibility with the current code and unit tests
-	// in the next major release, this line should be removed.
-	if c.FileExtension == "" {
-		c.FileExtension = "log"
+// GenNewBackupFileName generates a new backup file
+func (m *manager) GenNewBackupFileName(c *Config) string {
+	m.lock.Lock()
+	defer func() {
+		m.startAt = time.Now()
+		m.lock.Unlock()
+	}()
+
+	timeTag := m.startAt.Format(c.TimeTagFormat)
+	if c.Compress {
+		return path.Join(c.FilePath + ".gz." + timeTag)
 	}
 
-	m.lock.Lock()
-	filename = c.fileFormat(m.startAt)
-	// reset the start time to now
-	m.startAt = time.Now()
-	m.lock.Unlock()
-	return
+	return path.Join(c.FilePath + "." + timeTag)
 }

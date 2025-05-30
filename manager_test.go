@@ -8,13 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func newTimeManager() manager {
-	return manager{}
-}
-func newSizeManager() manager {
-	return manager{}
-}
-
 func TestParseVolume(t *testing.T) {
 	c := &Config{}
 	m := manager{}
@@ -60,18 +53,17 @@ func TestParseVolume(t *testing.T) {
 func TestGenLogFileName(t *testing.T) {
 	m := manager{}
 	c := &Config{
-		LogPath:       "./",
-		FileName:      "file",
+		FilePath:       "./file.log",
 		TimeTagFormat: "200601021504",
 	}
 	m.startAt = time.Now()
 
-	dest := m.GenLogFileName(c)
+	dest := m.GenNewBackupFileName(c)
 	timetag := m.startAt.Format(c.TimeTagFormat)
 	assert.Equal(t, path.Join("./", "file"+".log."+timetag), dest)
 
 	c.Compress = true
-	dest = m.GenLogFileName(c)
+	dest = m.GenNewBackupFileName(c)
 	timetag = m.startAt.Format(c.TimeTagFormat)
 	assert.Equal(t, path.Join("./", "file"+".log.gz."+timetag), dest)
 }

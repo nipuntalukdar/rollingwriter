@@ -4,8 +4,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path"
-	"path/filepath"
 	"time"
 )
 
@@ -14,21 +12,30 @@ const (
 	WithoutRolling = iota
 	TimeRolling
 	VolumeRolling
-)
-
-var (
-	// BufferSize defined the buffer size for log messages, default 1 MB
-	BufferSize = 1024 * 1024
-	// QueueSize defined the queue size for asynchronize write
-	QueueSize = 8 * 1024
-	// Precision defined the precision about the reopen operation condition
-	// check duration within second
-	Precision = 1
-	//Max write to file interval in seconds
-	MaxWriteInterval = 1
 
 	// DefaultFileMode set the default open mode rw-r--r-- by default
 	DefaultFileMode = os.FileMode(0644)
+	// DefaultDirMode set the default open mode rwx------ by default
+	DefaultDirMode = os.FileMode(0700)
+
+	// MinQueueSize define the minimum queue size for asynchronize write
+	DefaultQueueSize = 8 * 1024
+	// MinBufferSize define the minimum buffer size for log messages, 1 MB
+	DefaultBufferSize = 1024 * 1024
+
+	// MinQueueSize define the minimum queue size for asynchronize write
+	MinQueueSize = 64
+	// MinBufferSize define the minimum buffer size for log messages
+	MinBufferSize = 2048
+)
+
+var (
+	// Precision defined the precision about the reopen operation condition
+	// check duration within second
+	Precision = 1
+	// Max write to file interval in seconds
+	MaxWriteInterval = 1
+
 	// DefaultFileFlag set the default file flag
 	DefaultFileFlag = os.O_RDWR | os.O_CREATE | os.O_APPEND
 
@@ -42,11 +49,11 @@ var (
 	ErrQueueFull = errors.New("async log queue full")
 )
 
-// Manager used to trigger rolling event.
-type Manager interface {
-	// Fire will return a string channel
-	// while the rolling event occoured, new file name will generate
-	Fire() chan string
+// FileMonitor writes new backup file event.
+type FileMonitor interface {
+	// RotationEvents returns a string channel
+	// when rotation events occur, new backup filenames will be sent on this channel
+	RotationEvents() chan string
 	// Close the Manager
 	Close()
 }
@@ -62,31 +69,33 @@ type LogFileFormatter func(time.Time) string
 
 // Config give out the config for manager
 type Config struct {
-	// LogPath defined the full path of log file directory.
+	// FilePath defines the full path of log file
 	// there comes out 2 different log file:
 	//
-	// 1. the current log
-	//	log file path is located here:
-	//	[LogPath]/[FileName].[FileExtension]
+	// 1. the current active file
+	//	file path is located @:
+	//	FilePath
 	//
-	// 2. the tuncated log file
-	//	the tuncated log file is backup here:
-	//	[LogPath]/[FileName].[FileExtension].[TimeTag]
+	// 2. the truncated log file
+	//	the truncated log file is backup here:
+	//	[fileDir]/[fileName].[fileExt].[TimeTag]
 	//  if compressed true
-	//	[LogPath]/[FileName].[FileExtension].gz.[TimeTag]
+	//	[fileDir]/[fileName].[fileExt].gz.[TimeTag]
 	//
 	// NOTICE: blank field will be ignored
 	// By default we using '-' as separator, you can set it yourself
 	TimeTagFormat string `json:"time_tag_format,omitempty"`
-	LogPath       string `json:"log_path,omitempty"`
-	FileName      string `json:"file_name,omitempty"`
-	// FileExtension defines the log file extension. By default, it's 'log'
-	FileExtension string `json:"file_extension,omitempty"`
-	// FileFormatter log file path formatter for the file start write
-	// By default, append '.gz' suffix when Compress is true
-	FileFormatter LogFileFormatter `json:"-"`
-	// MaxRemain will auto clear the roling file list, set 0 will disable auto clean
-	MaxRemain int `json:"max_remain,omitempty"`
+	FilePath      string `json:"file_path,omitempty"`
+
+	// Mode of log files created
+	FileMode os.FileMode `json:"file_mode,omitempty"`
+
+	// Directory mode, mode of directory created
+	DirMode os.FileMode `json:"dir_mode,omitempty"`
+
+	// MaxBackups is the maximum number of old files to retain, if set 0 will
+	// all old files will be retained.
+	MaxBackups int `json:"max_remain,omitempty"`
 
 	// RollingPolicy give out the rolling policy
 	// We got 3 policies(actually, 2):
@@ -104,52 +113,28 @@ type Config struct {
 	// FilterEmptyBackup will not backup empty file if you set it true
 	FilterEmptyBackup bool `json:"filter_empty_backup,omitempty"`
 
-	//Maximum buffer  size
+	// Maximum buffer  size
 	BufferSize int `json:"max_buffer_size,omitempty"`
 
-	//Max queue size for log messages
-	QueueSize  int `json:"max_queue_size,omitempty"`
-}
-
-func (c *Config) fileFormat(start time.Time) (filename string) {
-	if c.FileFormatter != nil {
-		filename = c.FileFormatter(start)
-		if c.Compress && filepath.Ext(filename) != ".gz" {
-			filename += ".gz"
-		}
-	} else {
-		// [path-to-log]/filename.[FileExtension].2007010215041517
-		timeTag := start.Format(c.TimeTagFormat)
-		if c.Compress {
-			filename = path.Join(c.LogPath, c.FileName+"."+c.FileExtension+".gz."+timeTag)
-		} else {
-			filename = path.Join(c.LogPath, c.FileName+"."+c.FileExtension+"."+timeTag)
-		}
-	}
-	return
+	// Max queue size for log messages
+	QueueSize int `json:"max_queue_size,omitempty"`
 }
 
 // NewDefaultConfig return the default config
 func NewDefaultConfig() Config {
 	return Config{
-		LogPath:                "./log",
-		TimeTagFormat:          "200601021504",
-		FileName:               "log",
-		FileExtension:          "log",
-		MaxRemain:              -1,            // disable auto delete
-		RollingPolicy:          1,             // TimeRotate by default
-		RollingTimePattern:     "0 0 0 * * *", // Rolling at 00:00 AM everyday
-		RollingVolumeSize:      "1G",
-		BufferSize:             BufferSize,
-		QueueSize:              QueueSize,
-		Compress:               false,
+		FilePath:           "./log/log.log",
+		TimeTagFormat:      "200601021504",
+		FileMode:           DefaultFileMode,
+		DirMode:            DefaultDirMode,
+		MaxBackups:         0,             // disable backup pruning
+		RollingPolicy:      1,             // TimeRotate by default
+		RollingTimePattern: "0 0 0 * * *", // Rolling at 00:00 AM everyday
+		RollingVolumeSize:  "1M",
+		BufferSize:         DefaultBufferSize,
+		QueueSize:          DefaultQueueSize,
+		Compress:           false,
 	}
-}
-
-// LogFilePath return the absolute path on log file
-func LogFilePath(c *Config) (filepath string) {
-	filepath = path.Join(c.LogPath, c.FileName) + "." + c.FileExtension
-	return
 }
 
 // Option defined config option
@@ -162,47 +147,26 @@ func WithTimeTagFormat(format string) Option {
 	}
 }
 
-// WithLogPath set the log dir and auto create dir tree
-// if the dir/path is not exist
-func WithLogPath(path string) Option {
+// WithFilePath set the full path of rolling file,
+// if dir tree does not exist, it will be created
+func WithFilePath(path string) Option {
 	return func(p *Config) {
-		p.LogPath = path
+		p.FilePath = path
 	}
 }
 
-// WithFileName set the log file name
-func WithFileName(name string) Option {
-	return func(p *Config) {
-		p.FileName = name
-	}
-}
-
-// WithFileExtension set the log file extension
-func WithFileExtension(ext string) Option {
-	return func(p *Config) {
-		p.FileExtension = ext
-	}
-}
-
-// WithFileFormatter set the log file formatter
-func WithFileFormatter(formatter LogFileFormatter) Option {
-	return func(p *Config) {
-		p.FileFormatter = formatter
-	}
-}
-
-// WithCompress will auto compress the tuncated log file with gzip
+// WithCompress will auto compress auto rotated files with gzip
 func WithCompress() Option {
 	return func(p *Config) {
 		p.Compress = true
 	}
 }
 
-// WithMaxRemain enable the auto deletion for old file when exceed the given max value
-// Bydefault -1 will disable the auto deletion
-func WithMaxRemain(max int) Option {
+// WithMaxBackups sets the maximum number of backup files to retain
+// 0 will disable pruning backups files, this is the default behaviour
+func WithMaxBackups(max int) Option {
 	return func(p *Config) {
-		p.MaxRemain = max
+		p.MaxBackups = max
 	}
 }
 
